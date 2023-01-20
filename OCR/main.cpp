@@ -8,10 +8,12 @@ const char letter_lookup[52] = {
 
 int main()
 {
+	
 	Mat alphabet = imread("pictures/alphabet.bmp", 1);
 	Mat alphabet2 = imread("pictures/alphabet2.bmp", 1);
-	Mat example = imread("pictures/example1.bmp", 1);
-
+	Mat number = imread("pictures/number.bmp", 1);
+	Mat example = imread("pictures/example6.bmp", 1);
+	/*
 	std::vector<Mat>cap = letters(alphabet, 0, 15);
 	std::vector<Mat>lit = letters(alphabet2, 0, 10);
 	double* ref[52];
@@ -20,9 +22,11 @@ int main()
 		ref[i * 2] = LBP(cap[i]);
 		ref[i * 2 + 1] = LBP(lit[i]);
 	}
+	*/
 
-	std::vector<Mat>words = letters(example, 1, 3);
+	std::vector<Mat>words = letters(example, 0, 15);
 
+	/*
 	double* temp;
 	for (int i = 0; i < words.size(); i++)
 	{
@@ -51,6 +55,7 @@ int main()
 
 
 	}
+	*/
 
 	return 0;
 }

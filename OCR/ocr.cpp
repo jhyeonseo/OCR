@@ -10,22 +10,15 @@ std::vector<Mat> letters(Mat input, int color, int pontsize)
 	int count;
 	std::vector<Mat> outputs;
 	pontsize = pontsize * 50;
-	resize(input, input, Size(630, 630));
-	//imshow("input", input);
-	//waitKey(0);
+	resize(input, input, Size(700, 700));
 	cvtColor(input, copy, COLOR_BGR2GRAY);
 	if (color)
-		copy = threshold(copy, color, 175);
+		copy = threshold(copy, color, 200);
 	else
-		copy = threshold(copy, color, 100);
-	//imshow("threshold", copy);
-	//waitKey(0);
+		copy = threshold(copy, color, 125);
 	Mat line = LINE(copy, pontsize);
-	imshow("refined", line);
-	waitKey(0);
 	Mat indexmap = paint(copy, line, count, pontsize);
-	//imshow("indexmap", indexmap);
-	//waitKey(0);
+	Mat lettermap = input.clone();
 	for (int c = 1; c <= count; c++)
 	{
 		int minx, miny;
@@ -60,13 +53,17 @@ std::vector<Mat> letters(Mat input, int color, int pontsize)
 		int width = (maxx - minx) / 2;
 		int height = (maxy - miny) / 2;
 		Mat temp = copy(Range(miny - 1, maxy + 1), Range(minx - 1, maxx + 1));
-		resize(temp, temp, Size(256, 256));
+		resize(temp, temp, Size(128, 128));
 		temp = threshold(temp, 1, 200);
 		outputs.push_back(temp);
-		rectangle(input, Rect(Point(minx - 1, miny - 1), Point(maxx + 1, maxy + 1)), Scalar(255, 0, 255), 1, 8, 0);
+		rectangle(lettermap, Rect(Point(minx - 1, miny - 1), Point(maxx + 1, maxy + 1)), Scalar(255, 0, 255), 1, 8, 0);
 	}
 
-	imshow("Letter map", input);
+	imshow("input", input);
+	imshow("threshold", copy);
+	imshow("refined", line);
+	//imshow("indexmap", indexmap);
+	imshow("Letter map", lettermap);
 	waitKey(0);
 	//printf("\nTotal predicted = %d\n", outputs.size());
 
@@ -155,7 +152,6 @@ Mat LINE(Mat input, int pontsize)
 	pontsize /= 50;
 	Mat grad = GRADIENT(input);
 	Mat output = Mat::zeros(input.rows, input.cols, CV_8UC1);
-	Mat output2 = Mat::zeros(input.rows, input.cols, CV_8UC1);
 
 	for (int y = 0; y < input.rows; y++)
 	{
@@ -188,6 +184,7 @@ Mat LINE(Mat input, int pontsize)
 				if (flag)
 				{
 					double oflag = 0;
+
 					while (1)
 					{
 						int tx = x + (int)(round(odir[0] * oflag)) + (int)(round(dir[0] * flag / 2));
@@ -198,7 +195,7 @@ Mat LINE(Mat input, int pontsize)
 						if (input.at<uchar>(ty, tx) == 0)
 						{
 							//printf("%f %f\n", flag, k);
-							if (oflag / flag > 0)
+							if (oflag / flag >= 1)
 							{
 								for (double i = 0; i < flag; i += 0.25)
 								{
@@ -210,12 +207,11 @@ Mat LINE(Mat input, int pontsize)
 							}
 							break;
 						}
-						output2.at<uchar>(ty, tx) = 255;
+
 						oflag += 0.25;
 					}
 
 					//imshow("a", output);
-					//imshow("b", output2);
 					//waitKey(1);
 				}
 			}
@@ -305,8 +301,8 @@ int fill(Mat ref, Mat output, int fill, int x, int y, int pontsize)
 		}
 	}
 
-	//printf("%d\n", line);
-	if (line >= pontsize * 4 || line <= pontsize / 4 || line < notline)
+//	printf("%d\n", line);
+	if (line >= pontsize * 4 || line < 20 || line < notline)//|| line <= pontsize / 4
 		return -1;
 	else
 		return (miny + maxy) / 2;
