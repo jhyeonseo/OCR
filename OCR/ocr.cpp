@@ -10,13 +10,14 @@ std::vector<Mat> letters(Mat input, int color, int pontsize)
 	int count;
 	std::vector<Mat> outputs;
 	pontsize = pontsize * 50;
-	resize(input, input, Size(700, 700));
+	resize(input, input, Size(800, 800));
 	cvtColor(input, copy, COLOR_BGR2GRAY);
+	Mat line = LINE(copy, color, pontsize);
 	if (color)
 		copy = threshold(copy, color, 200);
 	else
-		copy = threshold(copy, color, 125);
-	Mat line = LINE(copy, pontsize);
+		copy = threshold(copy, color, 100);
+	
 	Mat indexmap = paint(copy, line, count, pontsize);
 	Mat lettermap = input.clone();
 	for (int c = 1; c <= count; c++)
@@ -26,9 +27,9 @@ std::vector<Mat> letters(Mat input, int color, int pontsize)
 		int maxx, maxy;
 		maxx = maxy = -1;
 		int trigger = 1;
-		for (int y = 1; y < indexmap.rows - 1; y++)
+		for (int y = 2; y < indexmap.rows - 2; y++)
 		{
-			for (int x = 1; x < indexmap.cols - 1; x++)
+			for (int x = 2; x < indexmap.cols - 2; x++)
 			{
 				if (indexmap.at<uchar>(y, x) == c)
 				{
@@ -50,13 +51,12 @@ std::vector<Mat> letters(Mat input, int color, int pontsize)
 			printf("triggered: %d\n", c);
 			continue;
 		}
-		int width = (maxx - minx) / 2;
-		int height = (maxy - miny) / 2;
-		Mat temp = copy(Range(miny - 1, maxy + 1), Range(minx - 1, maxx + 1));
-		resize(temp, temp, Size(128, 128));
+		
+		Mat temp = copy(Range(miny - 2, maxy + 2), Range(minx - 0, maxx + 0));
+		resize(temp, temp, Size(256, 256));
 		temp = threshold(temp, 1, 200);
 		outputs.push_back(temp);
-		rectangle(lettermap, Rect(Point(minx - 1, miny - 1), Point(maxx + 1, maxy + 1)), Scalar(255, 0, 255), 1, 8, 0);
+		rectangle(lettermap, Rect(Point(minx - 0, miny - 2), Point(maxx + 0, maxy + 2)), Scalar(255, 0, 255), 1, 8, 0);
 	}
 
 	imshow("input", input);
@@ -147,27 +147,36 @@ Mat threshold(Mat input, int color, int threshold)
 
 	return output;
 }
-Mat LINE(Mat input, int pontsize)
+Mat LINE(Mat input,int color, int pontsize)
 {
 	pontsize /= 50;
 	Mat grad = GRADIENT(input);
 	Mat output = Mat::zeros(input.rows, input.cols, CV_8UC1);
+	Mat edge = EDGE(grad);
+	threshold(edge, edge, 100, 255, THRESH_BINARY);
+	//imshow("!", edge);
+	//waitKey();
 
 	for (int y = 0; y < input.rows; y++)
 	{
 		for (int x = 0; x < input.cols; x++)
 		{
-			if (input.at<uchar>(y, x) == 255)
+			if (edge.at<uchar>(y, x) == 255)
 			{
 				Vec2d dir = grad.at<Vec2d>(y, x);
 				double normalize = sqrt(dir[0] * dir[0] + dir[1] * dir[1]);
 				double flag = 0;
-				dir[0] = dir[0] / normalize;
-				dir[1] = dir[1] / normalize;
+				if (color)
+				{
+					dir[0] = dir[0] / normalize;
+					dir[1] = dir[1] / normalize;
+				}
+				else
+				{
+					dir[0] = -dir[0] / normalize;
+					dir[1] = -dir[1] / normalize;
+				}
 
-				Vec2d odir;
-				odir[0] = -dir[1];
-				odir[1] = dir[0];
 				for (double i = 0; i <= pontsize; i += 0.25)
 				{
 					int xx = x + (int)(round(dir[0] * i));
@@ -175,7 +184,7 @@ Mat LINE(Mat input, int pontsize)
 					if (xx < 0 || xx >= input.cols || yy < 0 || yy >= input.rows)
 						break;
 
-					if (input.at<uchar>(yy, xx) == 0)
+					if ((edge.at<uchar>(yy, xx) == 255) && ((xx != x) || (yy != y)))
 					{
 						flag = i;
 						break;
@@ -184,24 +193,36 @@ Mat LINE(Mat input, int pontsize)
 				if (flag)
 				{
 					double oflag = 0;
+					Vec2d odir;
+					odir[0] = -dir[1];
+					odir[1] = dir[0];
+					int cx = (int)(round(dir[0] * (flag - 0.25) / 2));
+					int cy = (int)(round(dir[1] * (flag - 0.25) / 2));
 
+					///*
+					int trigger = 0;
 					while (1)
 					{
-						int tx = x + (int)(round(odir[0] * oflag)) + (int)(round(dir[0] * flag / 2));
-						int ty = y + (int)(round(odir[1] * oflag)) + (int)(round(dir[1] * flag / 2));
+						int tx = x + (int)(round(odir[0] * oflag)) + cx;
+						int ty = y + (int)(round(odir[1] * oflag)) + cy;
+
 						if (tx < 0 || tx >= input.cols || ty < 0 || ty >= input.rows)
 							break;
-
-						if (input.at<uchar>(ty, tx) == 0)
+						
+						if (edge.at<uchar>(ty, tx) == 255)
+							trigger = 1;
+						if (trigger == 1 && edge.at<uchar>(ty, tx) == 0)
+							trigger = 2;
+						
+						if (trigger == 2)
 						{
-							//printf("%f %f\n", flag, k);
-							if (oflag / flag >= 1)
+							if (oflag / flag > 1.5)
 							{
 								for (double i = 0; i < flag; i += 0.25)
 								{
 									int xx = x + (int)(round(dir[0] * i));
 									int yy = y + (int)(round(dir[1] * i));
-									
+
 									output.at<uchar>(yy, xx) = 255;
 								}
 							}
@@ -210,7 +231,7 @@ Mat LINE(Mat input, int pontsize)
 
 						oflag += 0.25;
 					}
-
+					//*/
 					//imshow("a", output);
 					//waitKey(1);
 				}
@@ -230,7 +251,7 @@ Mat paint(Mat original, Mat line, int& count, int pontsize)
 		int trigger = 0;
 		for (int x = 0; x < output.cols; x++)
 		{
-			if (output.at<uchar>(y, x) == 255)
+			if (line.at<uchar>(y, x) == 255)
 			{
 				if (trigger)
 				{
@@ -254,7 +275,7 @@ Mat paint(Mat original, Mat line, int& count, int pontsize)
 				}
 				
 				//imshow("!", output);
-				//waitKey(0);
+				//waitKey(1);
 			}
 			if (count == 254)
 				return output;
@@ -302,7 +323,7 @@ int fill(Mat ref, Mat output, int fill, int x, int y, int pontsize)
 	}
 
 //	printf("%d\n", line);
-	if (line >= pontsize * 4 || line < 20 || line < notline)//|| line <= pontsize / 4
+	if (line >= pontsize * 4 || line <= 30 || line < notline)//|| line <= pontsize / 4
 		return -1;
 	else
 		return (miny + maxy) / 2;
@@ -320,6 +341,7 @@ void remove(Mat tar, int remove, int x, int y)
 			if ((tar.at<uchar>(y, x) == remove) || (tar.at<uchar>(y, x) == 255))
 			{
 				tar.at<uchar>(y, x) = 0;
+
 				push(x - 1); push(y);
 				push(x + 1); push(y);
 				push(x); push(y - 1);
@@ -338,12 +360,14 @@ double COMPARE(double* input1, double* input2, int size)
 	double inner = 0;
 	double anorm = 0;
 	double bnorm = 0;
+	//printf("%f\n", similarity);
 	for (int i = 0; i < size; i++)
 	{
 		inner += input1[i] * input2[i];
 		anorm += input1[i] * input1[i];
 		bnorm += input2[i] * input2[i];
 	}
+
 	if (anorm == 0 || bnorm == 0)
 		similarity = 0;
 	else
@@ -389,12 +413,13 @@ double* LBP(Mat img)
 			LBP.at<uchar>(y, x) = lbp;
 		}
 	}
-	int BLK = WIN / 8;
-	int interval = BLK / 8;
+	int BLK = WIN / 4;
+	int interval = BLK / 4;
 	int block = (WIN - BLK) / interval + 1;
-	int features = 255;
+	int features = 254;
 	double* output = (double*)calloc(block * block * features, sizeof(double));
 	double* temp = (double*)calloc(features, sizeof(double));
+	//printf("%d\n", block * block * features);
 	for (int y = 0; y <= WIN - BLK; y += interval)
 	{
 		for (int x = 0; x <= WIN - BLK; x += interval)
@@ -406,17 +431,62 @@ double* LBP(Mat img)
 				temp[i] = 0;
 			for (int yy = y; yy < y + BLK; yy++)
 				for (int xx = x; xx < x + BLK; xx++)
-					temp[LBP.at<uchar>(yy, xx)] += 1;
-
+					if (LBP.at<uchar>(yy, xx) != 0)
+						temp[LBP.at<uchar>(yy, xx) - 1] += 1;
+			
 			NORMALIZE(temp, features);
+
 			for (int i = 0; i < features; i++)
-			{
 				output[by * block * features + bx * features + i] = temp[i];
-			}
+			
 		}
 	}
 
 	free(temp);
+	return output;
+}
+Mat EDGE(Mat input)
+{
+	Mat result(input.rows, input.cols, CV_64FC1);
+
+	for (int y = 0; y < input.rows; y++)
+	{
+		for (int x = 0; x < input.cols; x++)
+		{
+			double fx = input.at<Vec2d>(y, x)[0];
+			double fy = input.at<Vec2d>(y, x)[1];
+
+			result.at<double>(y, x) = std::sqrt(fx * fx + fy * fy);
+		}
+	}
+
+
+	double max = 0;
+	double min = 0;
+	double ratio = 255;  // normalize factor
+	for (int y = 0; y < result.rows; y++)
+	{
+		for (int x = 0; x < result.cols; x++)
+		{
+			double value = result.at<double>(y, x);
+			if (value > max)
+				max = value;
+			else if (value < min)
+				min = value;
+		}
+	}
+	if (max != min)
+		ratio = 255 / (max - min);
+
+	Mat output(result.rows, result.cols, CV_8UC1);
+	for (int y = 0; y < result.rows; y++)
+	{
+		for (int x = 0; x < result.cols; x++)
+		{
+			output.at<uchar>(y, x) = (int)(result.at<double>(y, x) * ratio);
+		}
+	}
+
 	return output;
 }
 /*
