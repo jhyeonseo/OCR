@@ -26,7 +26,7 @@ int main()
 		ref[i + 36] = LBP(lit[i]);
 	
 	*/
-
+//	std::vector<Mat>word2s = letters(alphabet, 0, 50);
 	std::vector<Mat>words = letters(example, 1, 5);
 
 	/*
