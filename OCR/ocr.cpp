@@ -4,72 +4,415 @@
 int stack[Max];
 int top;
 
-std::vector<Mat> letters(Mat input, int color, int pontsize)
+void REFERENCE(double **ref)
 {
-	Mat copy;
-	int count;
+	Mat alphabet = imread("pictures/alphabet.bmp", 1);
+	Mat alphabet2 = imread("pictures/alphabet2.bmp", 1);
+	Mat number = imread("pictures/number.bmp", 1);
+
+	std::vector<Mat>cap = LETTERS(alphabet, 0, 15);
+	std::vector<Mat>lit = LETTERS(alphabet2, 0, 8);
+	std::vector<Mat>num = LETTERS(number, 0, 15);
+
+	for (int i = 0; i < 10; i++)
+		ref[i] = LBP(num[i]);
+	for (int i = 0; i < 26; i++)
+		ref[i + 10] = LBP(cap[i]);
+	for (int i = 0; i < 26; i++)
+		ref[i + 36] = LBP(lit[i]);
+
+}
+std::vector<Mat> LETTERS(Mat input, int color, int pontsize)
+{
 	std::vector<Mat> outputs;
-	pontsize = pontsize * 50;
+	Mat copy, line, indexmap, lettermap;
+	int index[256][4] = { 0, };
+
 	resize(input, input, Size(800, 800));
 	cvtColor(input, copy, COLOR_BGR2GRAY);
-	Mat line = LINE(copy, color, pontsize);
-	Mat indexmap = paint(copy, line, count, pontsize);
-	if (color)
-		copy = threshold(copy, color, 200);
-	else
-		copy = threshold(copy, color, 100);
-	
-	Mat lettermap = input.clone();
-	for (int c = 1; c <= count; c++)
-	{
-		int minx, miny;
-		minx = miny = 10000;
-		int maxx, maxy;
-		maxx = maxy = -1;
-		int trigger = 1;
-		for (int y = 2; y < indexmap.rows - 2; y++)
-		{
-			for (int x = 2; x < indexmap.cols - 2; x++)
-			{
-				if (indexmap.at<uchar>(y, x) == c)
-				{
-					if (maxx < x)
-						maxx = x;
-					if (minx > x)
-						minx = x;
-					if (maxy < y)
-						maxy = y;
-					if (miny > y)
-						miny = y;
+	line = LINE(copy, color, pontsize);
+	index[256][4] = { 0, };
+	indexmap = PAINT(copy, line, color, pontsize, index);
+	lettermap = input.clone();
+	outputs = CROP(copy, indexmap, lettermap, index);
 
-					trigger = 0;
-				}
-			}
-		}
-		if (trigger || maxx == minx || maxy == miny)
-		{
-			printf("triggered: %d\n", c);
-			continue;
-		}
-		
-		Mat temp = copy(Range(miny - 2, maxy + 2), Range(minx - 0, maxx + 0));
-		resize(temp, temp, Size(256, 256));
-		temp = threshold(temp, 1, 200);
-		outputs.push_back(temp);
-		rectangle(lettermap, Rect(Point(minx - 0, miny - 2), Point(maxx + 0, maxy + 2)), Scalar(255, 0, 255), 1, 8, 0);
-	}
-
-	imshow("input", input);
+	//imshow("input", input);
 	//imshow("threshold", copy);
-	imshow("refined", line);
-	imshow("indexmap", indexmap);
+	//imshow("Line", line);
+	//imshow("Indexmap", indexmap);
 	imshow("Letter map", lettermap);
 	waitKey(0);
 	//printf("\nTotal predicted = %d\n", outputs.size());
 
 	return outputs;
 }
+void COMPARE(double **ref, std::vector<Mat> words)
+{
+	double* temp;
+	for (int i = 0; i < words.size(); i++)
+	{
+		temp = LBP(words[i]);
+		double max = 0;
+		int maxindex = 0;
+		for (int j = 0; j < 62; j++)
+		{
+			double score = SIMILARITY(ref[j], temp, 43095);
+			if (max < score)
+			{
+				max = score;
+				maxindex = j;
+			}
+		}
 
+		if (max > 0.5)
+		{
+			printf("[%c]", letter_lookup[maxindex]);
+			//printf("감지 성공!\n%c : %f %\n", letter_lookup[maxindex], max);
+			//imshow("compare", words[i]);
+			//waitKey(0);
+		}
+		else
+		{
+			//printf("감지 실패!\n%c : %f %\n", letter_lookup[maxindex], max);
+			//imshow("compare", words[i]);
+			//waitKey(0);
+		}
+
+	}
+}
+/*
+*/
+Mat LINE(Mat input, int color, int pontsize)
+{
+	Mat grad = GRADIENT(input);
+	Mat edge = EDGE(grad);
+
+	int average = 0;
+	int count = 0;
+	for (int y = 0; y < edge.rows; y++)
+	{
+		for (int x = 0; x < edge.cols; x++)
+		{
+			if (edge.at<uchar>(y, x) > 10)
+			{
+				average += edge.at<uchar>(y, x);
+				count++;
+			}
+		}
+	}
+	threshold(edge, edge, (int)((average / count)), 255, THRESH_BINARY);
+
+	Mat output = Mat::zeros(input.rows, input.cols, CV_8UC1);
+	//imshow("!", edge);
+	//waitKey();
+
+	for (int y = 0; y < input.rows; y++)
+	{
+		for (int x = 0; x < input.cols; x++)
+		{
+			if (edge.at<uchar>(y, x) == 255)
+			{
+				Vec2d dir = grad.at<Vec2d>(y, x);
+				double normalize = sqrt(dir[0] * dir[0] + dir[1] * dir[1]);
+				double flag = 0;
+				if (color)
+				{
+					dir[0] = dir[0] / normalize;
+					dir[1] = dir[1] / normalize;
+				}
+				else
+				{
+					dir[0] = -dir[0] / normalize;
+					dir[1] = -dir[1] / normalize;
+				}
+
+				for (double i = 0.25; i <= pontsize; i += 0.25)
+				{
+					int xx = x + (int)(round(dir[0] * i));
+					int yy = y + (int)(round(dir[1] * i));
+					if (xx < 0 || xx >= input.cols || yy < 0 || yy >= input.rows)
+						break;
+
+					if ((edge.at<uchar>(yy, xx) == 255) && ((xx != x) || (yy != y)))
+					{
+						Vec2d dir2 = grad.at<Vec2d>(yy, xx);
+						double angle = (dir[0] * dir2[0] + dir[1] * dir2[1]) / (sqrt(dir2[0] * dir2[0] + dir2[1] * dir2[1]));
+						angle = acos(angle) * 57.3;
+						
+						if (angle >= 150 || angle <= 30)
+							flag = i;
+						break;
+					}
+				}
+				if (flag)
+				{
+					double oflag1 = 0.25;
+					double oflag2 = 0.25;
+					Vec2d odir;
+					odir[0] = -dir[1];
+					odir[1] = dir[0];
+					int cx = (int)(round(dir[0] * flag / 2));
+					int cy = (int)(round(dir[1] * flag / 2));
+
+					///*
+					int trigger = 0;
+					int tx, ty;
+					while (1)
+					{
+						tx = x + (int)(round(odir[0] * oflag1)) + cx;
+						ty = y + (int)(round(odir[1] * oflag1)) + cy;
+
+						if (tx < 0 || tx >= input.cols || ty < 0 || ty >= input.rows)
+							break;
+
+						if (edge.at<uchar>(ty, tx) == 255 && ((tx != x) || (ty != y)))
+							trigger = 1;
+						if (trigger == 1 && edge.at<uchar>(ty, tx) == 0)
+							break;
+
+						oflag1 += 0.25;
+					}
+					trigger = 0;
+					while (1)
+					{
+						tx = x + (int)(round(-odir[0] * oflag2)) + cx;
+						ty = y + (int)(round(-odir[1] * oflag2)) + cy;
+
+						if (tx < 0 || tx >= input.cols || ty < 0 || ty >= input.rows)
+							break;
+
+						if (edge.at<uchar>(ty, tx) == 255 && ((tx != x) || (ty != y)))
+							trigger = 1;
+						if (trigger == 1 && edge.at<uchar>(ty, tx) == 0)
+							break;
+
+						oflag2 += 0.25;
+					}
+
+					if ((oflag1 + oflag2) > flag * 2.5)
+					{
+						for (double i = 0.25; i < flag; i += 0.25)
+						{
+							int xx = x + (int)(round(dir[0] * i));
+							int yy = y + (int)(round(dir[1] * i));
+
+							output.at<uchar>(yy, xx) = 255;
+						}
+					}
+					//*/
+					//imshow("a", output);
+					//waitKey(1);
+				}
+			}
+		}
+	}
+	return output;
+}
+Mat PAINT(Mat original, Mat line, int color, int pontsize, int index[256][4])
+{
+	int average = 0;
+	int count = 0;
+	int BLK = 7;
+	for (int y = 0; y < line.rows - BLK; y++)
+	{
+		for (int x = 0; x < line.cols - BLK; x++)
+		{
+			int temp_average = 0;
+			int trigger = 1;
+			for (int yy = y; yy < y + BLK; yy++)
+			{
+				for (int xx = x; xx < x + BLK; xx++)
+				{
+					if (line.at<uchar>(yy, xx) == 255)
+						temp_average += original.at<uchar>(yy, xx);
+
+					else
+					{
+						trigger = 0;
+						break;
+					}
+				}
+				if (trigger == 0)
+					break;
+			}
+			if (trigger)
+			{
+				average += temp_average;
+				count += BLK * BLK;
+			}
+		}
+	}
+
+	//imshow("original", original);
+	if (color)
+		threshold(original, original, (int)((average / count) * 0.95), 255, THRESH_BINARY);
+	else
+		threshold(original, original, (int)((average / count) * 1.05), 255, THRESH_BINARY_INV);
+
+	//imshow("thresholding", original);
+	//imshow("line", line);
+	//waitKey();
+	Mat output = original.clone();
+
+	count = 0;
+	for (int y = 0; y < output.rows; y++)
+	{
+		for (int x = 0; x < output.cols; x++)
+		{
+			if ((line.at<uchar>(y, x) == 255) && (output.at<uchar>(y, x) == 255))
+			{
+				count++;
+				int check = fill(original, line, output, count, pontsize, x, y, index[count]);
+				//printf("*****%d*******\n", check);
+				if (check == -1)
+					count--;
+
+			}
+			if (count == 254)
+				return output;
+
+		}
+	}
+
+	return output;
+}
+std::vector<Mat> CROP(Mat input, Mat indexmap, Mat lettermap, int index[256][4])
+{
+	std::vector<Mat> outputs;
+	for (int y = 0; y < indexmap.rows; y++)
+	{
+		int trigger = 0;
+		for (int x = 0; x < indexmap.cols; x++)
+		{
+			if (indexmap.at<uchar>(y, x) != 255 && index[indexmap.at<uchar>(y, x)][0] != 0)
+			{
+				if (trigger)
+				{
+					int key = indexmap.at<uchar>(y, x);
+					Mat temp = input(Range(index[key][1] - 2, index[key][3] + 2), Range(index[key][0] - 1, index[key][2] + 1));
+					resize(temp, temp, Size(128, 128));
+					threshold(temp, temp, 200, 255, THRESH_BINARY);
+					outputs.push_back(temp);
+					rectangle(lettermap, Rect(Point(index[key][0] - 1, index[key][1] - 2), Point(index[key][2] + 1, index[key][3] + 2)), Scalar(255, 0, 255), 1, 8, 0);
+
+					x = index[key][2];
+					y = (index[trigger][1] + index[trigger][3]) / 2;
+					index[key][0] = 0;
+					//imshow("%", temp);
+					//waitKey();
+					//imshow("a", lettermap);
+					//waitKey();
+				}
+				else
+				{
+					trigger = indexmap.at<uchar>(y, x);
+					//printf("%d, %d: %d %d\n", trigger, index[indexmap.at<uchar>(y, x)][2], x, y);
+					x = 0;
+					y = (index[trigger][1] + index[trigger][3]) / 2;
+				}
+
+			}
+		}
+	}
+
+	return outputs;
+}
+/*
+*/
+int fill(Mat ref, Mat ref_line, Mat output, int filling, int pontsize, int x, int y, int index[4])
+{
+	//printf("fill\n");
+	//filling = 200 - filling*2;
+	int miny, minx, maxy, maxx;
+	miny = minx = 10000;
+	maxy = maxx = 0;
+	int line = 0;
+	int notline = 0;
+	top = -1;
+	push(x); push(y);
+	int ox = x;
+	int oy = y;
+	while (top > 0)
+	{
+		y = pop();
+		x = pop();
+		//printf("%d %d %d\n", x, y, ref_original.at<uchar>(y, x));
+		if ((x >= 2) && (x < output.cols - 2) && (y >= 2) && (y < output.rows - 2))
+		{
+			if (output.at<uchar>(y, x) == 255 && ref.at<uchar>(y, x) == 255)
+			{
+				//	printf("%d %d %d\n", x, y, ref_original.at<uchar>(y, x));
+				if (ref_line.at<uchar>(y, x) == 255)
+					line++;
+				else notline++;
+
+				if (miny > y) miny = y;
+				else if (maxy < y) maxy = y;
+				if (minx > x) minx = x;
+				else if (maxx < x) maxx = x;
+
+				output.at<uchar>(y, x) = filling;
+				push(x - 1); push(y);
+				push(x + 1); push(y);
+				push(x); push(y - 1);
+				push(x); push(y + 1);
+
+				if (line + notline >= pontsize * 300) // 5000 -> pontsize 대체
+				{
+					//printf("**********%d %d*********\n", line, notline);
+					remove(output, filling, ox, oy);
+					return -1;
+				}
+			}
+		}
+	}
+
+	if (((line + notline) <= 70 || line < notline)) //|| line <= pontsize / 4
+	{
+		//printf("%d %d %d\n", line, notline, filling);L
+		remove(output, filling, ox, oy);
+		return -1;
+	}
+	else
+	{
+		//printf("~~~~~~~~~%d~~~~~~~~\n", filling);
+		//imshow("?", ref_original);
+		//imshow("!", output);
+		//imshow(",", ref_line);
+		//waitKey(0);
+		index[0] = minx;
+		index[1] = miny;
+		index[2] = maxx;
+		index[3] = maxy;
+		return 1;
+	}
+}
+void remove(Mat tar, int remove, int x, int y)
+{
+	//printf("remove\n");
+	top = -1;
+	push(x); push(y);
+	while (top > 0)
+	{
+		y = pop();
+		x = pop();
+		if ((x >= 2) && (x < tar.cols - 2) && (y >= 2) && (y < tar.rows - 2))
+		{
+			if ((tar.at<uchar>(y, x) == remove) || (tar.at<uchar>(y, x) == 255))  // 배경으로 확정된 관심영역은 삭제해도 된다
+			{
+				tar.at<uchar>(y, x) = 0;
+				push(x - 1); push(y);
+				push(x + 1); push(y);
+				push(x); push(y - 1);
+				push(x); push(y + 1);
+			}
+		}
+	}
+	//printf("^^^^^^^^^^%d^^^^^^^^^^\n", count);
+	//imshow("&", tar);
+	//waitKey(0);
+	return;
+}
 /*
 */
 Mat CONV(Mat input, Mat filter)
@@ -167,326 +510,7 @@ Mat EDGE(Mat input)
 
 	return output;
 }
-/*
-*/
-Mat threshold(Mat input, int color, int threshold)
-{
-	Mat output(input.rows, input.cols, CV_8UC1);
-	for (int y = 0; y < input.rows; y++)
-	{
-		for (int x = 0; x < input.cols; x++)
-		{
-			if (color)
-				if (input.at<uchar>(y, x) > threshold)
-					output.at<uchar>(y, x) = 255;
-				else
-					output.at<uchar>(y, x) = 0;
-			else
-				if (input.at<uchar>(y, x) < threshold)
-					output.at<uchar>(y, x) = 255;
-				else
-					output.at<uchar>(y, x) = 0;
-		}
-	}
-
-	return output;
-}
-Mat LINE(Mat input,int color, int pontsize)
-{
-	pontsize /= 50;
-	Mat grad = GRADIENT(input);
-	Mat edge = EDGE(grad);
-	threshold(edge, edge, 80, 255, THRESH_BINARY);
-	Mat output = Mat::zeros(input.rows, input.cols, CV_8UC1);
-	//imshow("!", edge);
-	//waitKey();
-
-	for (int y = 0; y < input.rows; y++)
-	{
-		for (int x = 0; x < input.cols; x++)
-		{
-			if (edge.at<uchar>(y, x) == 255)
-			{
-				Vec2d dir = grad.at<Vec2d>(y, x);
-				double normalize = sqrt(dir[0] * dir[0] + dir[1] * dir[1]);
-				double flag = 0;
-				if (color)
-				{
-					dir[0] = dir[0] / normalize;
-					dir[1] = dir[1] / normalize;
-				}
-				else
-				{
-					dir[0] = -dir[0] / normalize;
-					dir[1] = -dir[1] / normalize;
-				}
-
-				for (double i = 0; i <= pontsize; i += 0.25)
-				{
-					int xx = x + (int)(round(dir[0] * i));
-					int yy = y + (int)(round(dir[1] * i));
-					if (xx < 0 || xx >= input.cols || yy < 0 || yy >= input.rows)
-						break;
-
-					if ((edge.at<uchar>(yy, xx) == 255) && ((xx != x) || (yy != y)))
-					{
-						flag = i;
-						break;
-					}
-				}
-				if (flag)
-				{
-					double oflag1 = 0;
-					double oflag2 = 0;
-					Vec2d odir;
-					odir[0] = -dir[1];
-					odir[1] = dir[0];
-					int cx = (int)(round(dir[0] * (flag - 0.25) / 2));
-					int cy = (int)(round(dir[1] * (flag - 0.25) / 2));
-
-					///*
-					int trigger = 0;
-					int tx, ty;
-					while (1)
-					{
-						tx = x + (int)(round(odir[0] * oflag1)) + cx;
-						ty = y + (int)(round(odir[1] * oflag1)) + cy;
-
-						if (tx < 0 || tx >= input.cols || ty < 0 || ty >= input.rows)
-							break;
-						
-						if (edge.at<uchar>(ty, tx) == 255)
-							trigger = 1;
-						if (trigger == 1 && edge.at<uchar>(ty, tx) == 0)
-						{
-							trigger = 2;
-							break;
-						}
-						oflag1 += 0.25;
-					}
-					trigger = 0;
-					while (1)
-					{
-						tx = x + (int)(round(-odir[0] * oflag2)) + cx;
-						ty = y + (int)(round(-odir[1] * oflag2)) + cy;
-
-						if (tx < 0 || tx >= input.cols || ty < 0 || ty >= input.rows)
-							break;
-
-						if (edge.at<uchar>(ty, tx) == 255)
-							trigger = 1;
-						if (trigger == 1 && edge.at<uchar>(ty, tx) == 0)
-						{
-							trigger = 2;
-							break;
-						}
-						oflag2 += 0.25;
-					}
-					
-					if ((oflag1 + oflag2) > flag * 3)
-					{
-						for (double i = 0.25; i < flag; i += 0.25)
-						{
-							int xx = x + (int)(round(dir[0] * i));
-							int yy = y + (int)(round(dir[1] * i));
-
-							output.at<uchar>(yy, xx) = 255;
-						}
-					}
-					//*/
-					//imshow("a", output);
-					//waitKey(1);
-				}
-			}
-		}
-	}
-
-	return output;
-}
-Mat paint(Mat original, Mat line, int& count, int pontsize)
-{
-	Mat input = original.clone();
-	//Mat input = EDGE(GRADIENT(original));
-	//threshold(input, input, 80, 255, THRESH_BINARY);
-	//threshold(original, input, 50, 255, THRESH_TOZERO);
-	//imshow("input", input);
-	//waitKey();
-	Mat output = Mat::zeros(original.rows, original.cols, CV_8UC1);
-
-	count = 0;
-	for (int y = 0; y < output.rows; y++)
-	{
-		int trigger = 0;
-		for (int x = 0; x < output.cols; x++)
-		{
-			if ((line.at<uchar>(y, x) == 255) && (output.at<uchar>(y, x) == 0))
-			{
-				count++;
-
-				int check = fill(input, line, output, count, x, y, pontsize);
-				//printf("*****%d*******\n", check);
-				if (check != -1)
-				{
-					trigger = 1;
-					y = check;
-					x = 0;
-				}
-				else
-					count--;
-
-				//imshow("output", output);
-				//waitKey(1);
-			}
-			if (count == 254)
-			{
-				for (int yy = 0; yy < output.rows; yy++)
-				{
-
-					for (int xx = 0; xx < output.cols; xx++)
-					{
-						if (output.at<uchar>(yy, xx) == 0)
-							output.at<uchar>(yy, xx) = 255;
-					}
-				}
-				return output;
-			}
-		}
-	}
-	
-	for (int yy = 0; yy < output.rows; yy++)
-	{
-
-		for (int xx = 0; xx < output.cols; xx++)
-		{
-			if (output.at<uchar>(yy, xx) == 0)
-				output.at<uchar>(yy, xx) = 255;
-		}
-	}
-
-	return output;
-	
-}
-/*
-*/
-int fill(Mat ref_original, Mat ref_line, Mat output, int filling, int x, int y, int pontsize)
-{
-	//printf("fill\n");
-	//filling = 200 - filling;
-	int line = 0;
-	int notline = 0;
-	int miny = 10000;
-	int maxy = 0;
-	int past = 0;
-	top = -1;
-	push(x); push(y);
-	while (top > 0)
-	{
-		y = pop();
-		x = pop();
-		//printf("%d %d %d\n", x, y, ref_original.at<uchar>(y, x));
-		if ((x >= 0) && (x < output.cols) && (y >= 0) && (y < output.rows))
-		{
-			if (output.at<uchar>(y, x) == 0)
-			{
-			//	printf("%d %d %d\n", x, y, ref_original.at<uchar>(y, x));
-				if (ref_line.at<uchar>(y, x) == 255)
-					line++;
-				else notline++;
-
-				if (miny > y) miny = y;
-				else if (maxy < y) maxy = y;
-
-				output.at<uchar>(y, x) = filling;
-
-				if (((abs(ref_original.at<uchar>(y, x) - ref_original.at<uchar>(y, x - 1)) < 30)) && (x - 1 >= 0))
-				{
-					push(x - 1); push(y);
-				}
-				if ((abs(ref_original.at<uchar>(y, x) - ref_original.at<uchar>(y, x + 1)) < 30) && (x + 1 < output.cols))
-				{
-					push(x + 1); push(y);
-				}
-				if ((abs(ref_original.at<uchar>(y, x) - ref_original.at<uchar>(y - 1, x)) < 30) && (y - 1 >= 0))
-				{
-					push(x); push(y - 1);
-				}
-				if ((abs(ref_original.at<uchar>(y, x) - ref_original.at<uchar>(y + 1, x)) < 30) && (y + 1 < output.rows))
-				{
-					push(x); push(y + 1);
-				}
-
-				if (line + notline >= 5000) // 5000 -> pontsize 대체
-				{
-					//printf("**********%d %d*********\n", line, notline);
-					remove(ref_original, output, filling, x, y);
-					return -1;
-				}
-			}
-		}
-	}
-
-	if (((line + notline) <= 70 || line < notline)) //|| line <= pontsize / 4
-	{
-		//printf("%d %d %d\n", line, notline, filling);;
-		remove(ref_original, output, filling, x, y);
-		return -1;
-	}
-	else
-	{
-		//printf("~~~~~~~~~%d~~~~~~~~\n", filling);
-		//imshow("?", ref_original);
-		//imshow("!", output);
-		//imshow(",", ref_line);
-		//waitKey(0);
-		return (miny + maxy) / 2;
-
-	}
-	
-}
-void remove(Mat ref, Mat tar, int remove, int x, int y)
-{
-	//printf("remove\n");
-	top = -1;
-	push(x); push(y);
-	while (top > 0)
-	{
-		y = pop();
-		x = pop();
-		if ((x >= 0) && (x < tar.cols) && (y >= 0) && (y < tar.rows))
-		{
-			if ((tar.at<uchar>(y, x) == remove) || (tar.at<uchar>(y, x) == 0))
-			{
-
-				tar.at<uchar>(y, x) = 255;
-				if (((abs(ref.at<uchar>(y, x) - ref.at<uchar>(y, x - 1)) < 30)) && (x - 1 >= 0))
-				{
-					push(x - 1); push(y);
-				}
-				if ((abs(ref.at<uchar>(y, x) - ref.at<uchar>(y, x + 1)) < 30) && (x + 1 < tar.cols))
-				{
-					push(x + 1); push(y);
-				}
-				if ((abs(ref.at<uchar>(y, x) - ref.at<uchar>(y - 1, x)) < 30) && (y - 1 >= 0))
-				{
-					push(x); push(y - 1);
-				}
-				if ((abs(ref.at<uchar>(y, x) - ref.at<uchar>(y + 1, x)) < 30) && (y + 1 < tar.rows))
-				{
-					push(x); push(y + 1);
-				}
-
-
-			}
-		}
-	}
-	//printf("^^^^^^^^^^%d^^^^^^^^^^\n", count);
-	//imshow("&", tar);
-	//waitKey(0);
-	return;
-}
-/*
-*/
-double COMPARE(double* input1, double* input2, int size)
+double SIMILARITY(double* input1, double* input2, int size)
 {
 	double similarity = 0;
 	double inner = 0;
@@ -523,7 +547,7 @@ void NORMALIZE(double* input, double inputsize)
 }
 double* LBP(Mat img)
 {
-	int WIN = 256;
+	int WIN = 128;
 
 	Mat LBP(WIN, WIN, CV_8UC1);
 	for (int y = 1; y < WIN - 1; y++)
@@ -548,7 +572,7 @@ double* LBP(Mat img)
 	int BLK = WIN / 4;
 	int interval = BLK / 4;
 	int block = (WIN - BLK) / interval + 1;
-	int features = 254;
+	int features = 255;
 	double* output = (double*)calloc(block * block * features, sizeof(double));
 	double* temp = (double*)calloc(features, sizeof(double));
 	//printf("%d\n", block * block * features);
